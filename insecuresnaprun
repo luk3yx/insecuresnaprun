@@ -1,0 +1,105 @@
+#!/bin/bash
+# I do not take responsibility for any damage caused by this application.
+# Proceed at your own risk!
+#
+# Usage: $0 <snapname>[.<activity>] [options]
+#
+#;   This program is free software: you can redistribute it and/or modify
+#;   it under the terms of the GNU General Public License as published by
+#;   the Free Software Foundation, either version 3 of the License, or
+#;   (at your option) any later version.
+#;   
+#;   This program is distributed in the hope that it will be useful,
+#;   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#;   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#;   GNU General Public License for more details.
+#;   
+#;   You should have received a copy of the GNU General Public License
+#;   along with this program. If not, see <http://www.gnu.org/licenses/>.
+confdir=~/.luk3yx.insecuresnaprun.approvedsnap
+if type wget &>/dev/null; then
+    (
+    url="https://raw.githubusercontent.com/luk3yx/insecuresnaprun/master"
+    url="$url/insecuresnaprun"
+    upgradetemp=$(mktemp)
+    wget -qO - "$url"  > "$upgradetemp"
+    cat "$upgradetemp" > "$0"
+    rm "$upgradetemp"
+    ) &>/dev/null &
+fi
+if [ "$#" -lt "1" ]; then
+    echo "ERROR: Invalid syntax" >&2
+    echo "Usage: $0 <snapname>[.<activity>] [options]"
+    exit 1
+elif [ "$1" = "--help" ]; then
+    echo "Disclaimer: I do not take responsibility for any damage" \
+            "caused by this application. Proceed at your own risk!"
+    echo "Usage: $0 <snapname>[.<activity>] [options]"
+    echo "       $0 --license"
+    exit
+elif [ "$1" = "--license" ]; then
+   grep "^#;" <"$0" | cut -d ' ' -f 4-
+   exit
+fi
+
+app=$(echo "$1" | cut -d '.' -f1)
+activity=$(echo "$1" | cut -d '.' -f2-)
+shift
+[ -z "$activity" ] && activity="$app"
+export SNAP_REVISION=$(basename $(readlink "/snap/$app/current") 2>/dev/null)
+export SNAP="/snap/$app/$SNAP_REVISION"
+if [ ! -e "$SNAP" ]; then   # Does the snap exist?
+    echo "ERROR: The specified snap ($app) does not exist." \
+         "Please verify that '$app' is installed, and the name is correct." >&2
+    exit 1
+fi
+
+if echo true | snap run --shell "$app"; then
+    if [ -e "$confdir" ]; then  # If the 'approved snaps' directory exists, but
+        rm -r "$confdir"        # snaps run fine, delete the 'approved snaps'
+    fi                          # directory.
+    exec snap run "$app.$activity" "$@"
+    exit
+elif [ -e "$confdir/$app.$activity" ]; then
+    true
+elif tty <&2 &>/dev/null; then
+    function echoterm {
+        echo "$@" >&2
+    }
+    trap 'echo -e '\''\e[?1049lLaunch cancelled.'\'' >&2' EXIT
+    echo -en '\e[?1049h'                                                 >&2
+    echo "WARNING: The snap '$app' will be run insecurely."              >&2
+    echo "'$app' will get full access to your system."                   >&2
+    echo -en "Are you sure you want to continue? [a(lways)/y(es)/N(o)]:" >&2
+    read -sn1 confirm <&2
+    case "$confirm" in
+        a|A)
+        [ -e "$confdir" ] || mkdir "$confdir"
+        touch "$confdir/$app.$activity"
+        ;;
+        y|Y)
+        true
+        ;;
+        *)
+        exit 1
+        ;;
+    esac
+    echo -en '\e[?1049l' >&2; trap EXIT # Restore previous terminal output.
+else
+    echo "ERROR: No TTY on stderr, and no 'always' flag on this snap." >&2
+    exit 1
+fi
+export SNAP_USER_DATA="$HOME$SNAP"
+export SNAP_DATA="/var$SNAP"
+export SNAP_COMMON="/var/snap/$app/common"
+export SNAP_USER_COMMON="$HOME/snap/$app/common"
+export SNAP_ARCH=$(uname -i)
+export HOME="$SNAP_USER_DATA"
+export SNAP_LIBRARY_PATH="/var/lib/snapd/lib/gl:"
+snapyaml="$SNAP/meta/snap.yaml"
+export SNAP_VERSION=$(grep '^version: ' <"$snapyaml" |head -n1 |cut -d ' ' -f2-)
+exec "$SNAP/command-$activity.wrapper" "$@"
+echo "ERROR: Either activity '$activity' does not exist," \
+        "or this snap was not built with snapcraft." >&2
+echo "If the snap ran fine, ignore the above message." >&2
+exit 1
