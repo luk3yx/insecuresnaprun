@@ -22,10 +22,11 @@ if type wget &>/dev/null; then
     url="https://raw.githubusercontent.com/luk3yx/insecuresnaprun/master"
     url="$url/insecuresnaprun"
     upgradetemp=$(mktemp)
-    wget -qO - "$url"  > "$upgradetemp"
+    wget -qO - "$url"  > "$upgradetemp" || exit
     cat "$upgradetemp" > "$0"
     rm "$upgradetemp"
     ) &>/dev/null &
+    disown -a
 fi
 if [ "$#" -lt "1" ]; then
     echo "ERROR: Invalid syntax" >&2
